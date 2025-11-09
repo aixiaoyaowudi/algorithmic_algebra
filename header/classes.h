@@ -149,87 +149,22 @@ namespace tools
     }
 }
 
-// std::pair<std::vector<Z>, bool> detach(const std::vector<Z> &s, const Z &p)
-// {
-//     if(p.is_zero())
-//     {
-//         return {std::vector<Z>(s.size()), true};
-//     }
-//     std::vector<std::int64_t> father(s.size());
-//     std::vector<mpz_class> value(s.size());
-//     std::vector<mpz_class> coef(s.size());
-//     std::vector<int> sgns;
-//     std::int64_t count = 0;
-//     auto cmp_func = [&](std::size_t a, std::size_t b) -> bool {return value[a] < value[b];};
-//     std::priority_queue<std::size_t, std::vector<std::size_t>, decltype(cmp_func)> pq(cmp_func);
-//     for(std::size_t _(0); _ < s.size(); ++ _)
-//     {
-//         const auto &v = s[_];
-//         auto sgn = mpz_sgn(v.value.get_mpz_t());
-//         if(sgn > 0) value[_] = v.value, ++ count;
-//         else if(sgn < 0) value[_] = - v.value, ++ count;
-//         else value[_] = 0, father[_] = 0;
-//         sgns.emplace_back(sgn);
-//         if(sgn != 0)
-//         {
-//             father[_] = _;
-//             pq.push(_);
-//         }
-//     }
-//     if(count == 0) return {{}, false};
-//     while(count > 1)
-//     {
-//         std::size_t x = pq.top(); pq.pop();
-//         std::size_t y = pq.top(); pq.pop();
-//         mpz_class s, t;
-//         mpz_class g = tools::ex_gcd(value[x], value[y], s, t);
-//         std::size_t cur = value.size();
-//         value.emplace_back(g);
-//         pq.push(cur);
-//         father.emplace_back(cur);
-//         coef.emplace_back();
-//         coef[x] = s;
-//         coef[y] = t;
-//         father[x] = cur;
-//         father[y] = cur;
-//         -- count;
-//     }
-//     mpz_class g = value[pq.top()];
-//     mpz_class val = p.value;
-//     std::cerr<<g<<" "<<val<<std::endl;
-//     mpz_class d = val / g, r = val - g * d;
-//     if(mpz_sgn(r.get_mpz_t()) != 0) return {{}, false};
-//     std::vector<Z> res(s.size());
-//     for(std::size_t _(0); _ < s.size(); ++ _) if(sgns[_])
-//     {
-//         if(sgns[_] > 0) res[_].value = d;
-//         else res[_].value = - d;
-//         for(std::int64_t ptr = _; ptr != father[ptr]; ptr = father[ptr])
-//         {
-//             res[_].value *= coef[ptr];
-//         }
-//     }
-//     return {res, true};
-// }
-
 template<>
-class ideal_helper<Z> : std::true_type
+class ideal_helper<Z> : public std::true_type
 {
 public:
     const std::vector<Z> s;
-    std::vector<std::int64_t> father;
-    std::vector<mpz_class> value;
-    std::vector<mpz_class> coef;
-    std::vector<int> sgns;
+    
+    std::vector<Z> res;
     std::int64_t count;
     mpz_class g;
     ideal_helper(const std::vector<Z> &s0):s(s0),g(0),count(0)
     {
-        father.resize(s.size());
-        value.resize(s.size());
-        coef.resize(s.size());
-        sgns.resize(s.size());
-        auto cmp_func = [&](std::size_t a, std::size_t b) -> bool {return value[a] < value[b];};
+        std::vector<std::int64_t> father(s.size());
+        std::vector<mpz_class> value(s.size());
+        std::vector<mpz_class> coef(s.size());
+        std::vector<int> sgns;
+        auto cmp_func = [&](std::size_t a, std::size_t b) -> bool {return value[a] < value[b];};    
         std::priority_queue<std::size_t, std::vector<std::size_t>, decltype(cmp_func)> pq(cmp_func);
         for(std::size_t _(0); _ < s.size(); ++ _)
         {
@@ -266,6 +201,16 @@ public:
         {
             g = value[pq.top()];
         }
+        res.resize(s.size());
+        for(std::size_t _(0); _ < s.size(); ++ _) if(sgns[_])
+        {
+            if(sgns[_] > 0) res[_] = Z::get_identity();
+            else res[_] = - Z::get_identity();
+            for(std::int64_t ptr = _; ptr != father[ptr]; ptr = father[ptr])
+            {
+                res[_].value *= coef[ptr];
+            }
+        }
     }
     std::pair<std::vector<Z>, bool> detach(const Z &p) const
     {
@@ -277,17 +222,11 @@ public:
         mpz_class val = p.value;
         mpz_class d = val / g, r = val - g * d;
         if(mpz_sgn(r.get_mpz_t()) != 0) return {{}, false};
-        std::vector<Z> res(s.size());
-        for(std::size_t _(0); _ < s.size(); ++ _) if(sgns[_])
-        {
-            if(sgns[_] > 0) res[_].value = d;
-            else res[_].value = - d;
-            for(std::int64_t ptr = _; ptr != father[ptr]; ptr = father[ptr])
-            {
-                res[_].value *= coef[ptr];
-            }
-        }
-        return {res, true};
+        std::vector<Z> p_res(res);
+        Z Zd(d);
+        for(std::size_t _(0); _ < s.size(); ++ _)
+            p_res[_] = p_res[_] * Zd;
+        return {p_res, true};
     }
 };
 

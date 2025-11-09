@@ -41,13 +41,15 @@ class ideal_helper:public std::false_type
 };
 
 template<typename T, std::enable_if_t<ideal_helper<T>::value, bool> = true>
-class ideal_solver:public syzygy_helper<T>
+class ideal_solver:public ideal_helper<T>
 {
+    using ideal_helper<T>::ideal_helper;
 };
 
 template<typename T, std::enable_if_t<syzygy_helper<T>::value, bool> = true>
 class syzygy_solver:public syzygy_helper<T>
 {
+    using syzygy_helper<T>::syzygy_helper;
 };
 
 #endif
