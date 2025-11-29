@@ -68,16 +68,25 @@ int main()
     // a.insert({std::make_pair(Hterm({2}),Z(1)),std::make_pair(Hterm({0,1}),Z(-1))});
     // b.insert({std::make_pair(Hterm({1,1}),Z(1)),std::make_pair(Hterm({0}),Z(-1))});
     std::cout << a << " " << b << " " << c << std::endl;
-    // std::cout << a << " " << b << std::endl;
-    auto T = grobner_basis(std::vector<poly>({a,b,c}));
-    // auto T = grobner_basis(std::vector<poly>({a,b}));
+    // // std::cout << a << " " << b << std::endl;
+    // auto T = grobner_basis(std::vector<poly>({a,b,c}));
+    // // auto T = grobner_basis(std::vector<poly>({a,b}));
     int idx(0);
-    for(auto [g, coef] : T)
+    // for(auto [g, coef] : T)
+    // {
+    //     std::cout << "Basis #" << (++idx) << " " << g << " ";
+    //     for(auto v : coef) std::cout << v << " ";
+    //     std::cout<<std::endl;
+    // }
+    auto H = syzygy_solver<poly>(std::vector<poly>({a,b,c}));
+    idx = 0;
+    for(auto b : H.basis)
     {
-        std::cout << "Basis #" << (++idx) << " " << g << " ";
-        for(auto v : coef) std::cout << v << " ";
+        std::cout << "Basis #" << (++idx) << " ";
+        for(auto g: b) std::cout<<g<<" ";
         std::cout<<std::endl;
     }
+    // std::cerr<<syzygy_helper<poly>::value<<std::endl;
     // std::vector<Z> c = {8, 18, 12, 0};
     // syzygy_solver<Z> ch(c);
     // for(auto val:ch.basis)

@@ -15,6 +15,8 @@
 #include <gmpxx.h>
 #include <cassert>
 #include <classes.h>
+#include <string>
+#include <map>
 
 template<typename field>
 class ideal_helper<field, std::enable_if_t<is_field<field>::value>> : public std::true_type
@@ -116,6 +118,8 @@ private:
     ideal_helper<Z> ih;
 public:
     std::vector<Z> s;
+    // std::vector<std::vector<Z>> z_basis;
+    std::vector<std::int64_t> z_map;
     std::vector<std::vector<Z>> basis;
     std::int64_t base_num;
     syzygy_helper(const std::vector<Z> &_s) : s(_s), ih(_s)
@@ -141,7 +145,11 @@ public:
                 coef[j] = - ih.res[j] * sp[i];
                 coef[i] = coef[i] + ih.res[j] * sp[j];
             }
-            basis.emplace_back(coef);
+            // z_basis.emplace_back(coef);
+            bool all_zero(true);
+            for(std::int64_t j(0); j < base_num; ++j)
+                all_zero &= coef[j].is_zero();
+            if(!all_zero) z_map.emplace_back(i), basis.emplace_back(coef);
         }
     }
     std::pair<std::vector<Z>, bool> solve_syzygy(std::vector<Z> p)
@@ -149,7 +157,10 @@ public:
         p.resize(s.size()); Z sum;
         for(std::size_t i = 0; i < s.size(); ++ i) sum = sum + s[i] * p[i];
         if(!sum.is_zero()) return {{}, false};
-        else return {p, true};
+        std::vector<Z> ret;
+        for(auto t : z_map)
+            ret.emplace_back(p[t]);
+        return {ret, true};
     }
 };
 
@@ -298,7 +309,7 @@ public:
                 if(data.empty())
                 {
                     // data.clear();
-                    data.emplace(a.first.zero(), base_ring::get_zero());
+                    data.emplace(Hterm({0}), base_ring::get_zero());
                 }
             }
             else data.insert(value);
@@ -324,8 +335,10 @@ public:
     }
 
     template<typename T>
-    multivariate_polynomial_ring(std::initializer_list<T>&& _data):data(_data)
+    multivariate_polynomial_ring(std::initializer_list<T>&& _data) : data({std::make_pair(Hterm({0}), base_ring::get_zero())})
     {
+        for(auto v:_data)
+            insert(v);
     }
 
     // template<typename T>
@@ -445,7 +458,7 @@ grobner_basis(const std::vector<multivariate_polynomial_ring<base_ring,func>> &g
         {
             std::vector<base_ring> c;
             std::vector<std::int64_t> idx;
-            for(std::int64_t i(0); i < g.size(); ++i) if(g[i].first.data.rbegin()->first <= a.data.rbegin()->first)
+            for(std::int64_t i(0); i < g.size(); ++i) if(!g[i].first.is_zero() && g[i].first.data.rbegin()->first <= a.data.rbegin()->first)
             {
                 c.emplace_back(g[i].first.data.rbegin() -> second);
                 idx.emplace_back(i);
@@ -466,7 +479,7 @@ grobner_basis(const std::vector<multivariate_polynomial_ring<base_ring,func>> &g
         return coefs;
     };
     std::int64_t cur_len;
-    std::function<void(const std::vector<std::int64_t>&, std::int64_t pos)> dfs = [&](std::vector<std::int64_t> idx, std::int64_t pos) -> void
+    std::function<void(std::vector<std::int64_t>, std::int64_t pos)> dfs = [&](std::vector<std::int64_t> idx, std::int64_t pos) -> void
     {
         if(pos >= cur_len) return;
         dfs(idx, pos + 1);
@@ -484,7 +497,7 @@ grobner_basis(const std::vector<multivariate_polynomial_ring<base_ring,func>> &g
                 }
                 syzygy_solver<base_ring> c_syzygy(c);
                 std::int64_t li(idx.size());
-                for(std::int64_t i(0); i < c_syzygy.base_num; ++ i)
+                for(std::int64_t i(0); i < c_syzygy.basis.size(); ++ i)
                 {
                     bool further = true;
                     for(std::int64_t j(0); j < li; ++ j)
@@ -522,5 +535,223 @@ grobner_basis(const std::vector<multivariate_polynomial_ring<base_ring,func>> &g
     }
     return g;
 }
+
+template<typename base_ring, typename func>
+class ideal_helper<multivariate_polynomial_ring<base_ring, func>, std::enable_if_t<is_strongly_computable<base_ring>::value>> : public std::true_type
+{
+public:
+    using poly=multivariate_polynomial_ring<base_ring, func>;
+    std::vector<poly> s;
+    std::vector<std::pair<poly, std::vector<poly>>> g;
+    ideal_helper(const std::vector<poly> &s0) : s(s0), g(grobner_basis(s0)){};
+    std::pair<std::vector<poly>, bool> detach(poly p)
+    {
+        std::int64_t l(s.size());
+        std::vector<poly> coefs();
+        while(!p.is_zero())
+        {
+            std::vector<base_ring> c;
+            std::vector<std::int64_t> idx;
+            for(std::int64_t i(0); i < g.size(); ++i) if(!g[i].first.is_zero() && g[i].first.data.rbegin()->first <= p.data.rbegin()->first)
+            {
+                c.emplace_back(g[i].first.data.rbegin() -> second);
+                idx.emplace_back(i);
+            }
+            ideal_solver<base_ring> c_ideal(c);
+            auto [res, cap] = c_ideal.detach(p.data.rbegin()->second);
+            if(!cap) break;
+            for(std::int64_t i(0); i < idx.size(); ++i)
+            {
+                poly multiplicator({std::make_pair(p.data.rbegin()->first / g[idx[i]].first.data.rbegin()->first, res[i]),});
+                for(std::int64_t j(0); j < l; ++j)
+                {
+                    coefs[j] = coefs[j] - g[idx[i]].second[j] * multiplicator;
+                }
+                p = p - g[idx[i]].first * multiplicator;
+            }
+        }
+        if(p.is_zero()) return {coefs, true};
+        else return {{}, false};
+    }
+};
+
+template<typename base_ring, typename func>
+class syzygy_helper<multivariate_polynomial_ring<base_ring, func>, std::enable_if_t<is_strongly_computable<base_ring>::value>> : public std::true_type
+{
+public:
+    using poly = multivariate_polynomial_ring<base_ring, func>;
+    std::vector<poly> s;
+    std::vector<std::pair<poly,std::vector<poly>>> gb;
+    std::map<std::string, std::pair<std::int64_t, syzygy_solver<base_ring>> > syzygy_map;
+    std::vector<std::vector<poly>> g_basis;
+    std::vector<std::vector<poly>> basis;
+    std::vector<std::int64_t> z_map;
+    std::vector<std::vector<poly>> rev_trans;
+    syzygy_helper(const std::vector<poly> &s0):s(s0)
+    {
+        std::vector<std::pair<poly,std::vector<poly>>> _gb(grobner_basis(s0));
+        for(const auto &u: _gb) if(!u.first.is_zero())
+            gb.emplace_back(u);
+        auto g_red = [&](poly &a) -> std::vector<poly>
+        {
+            std::vector<poly> coefs(gb.size());
+            while(!a.is_zero())
+            {
+                std::vector<base_ring> c;
+                std::vector<std::int64_t> idx;
+                for(std::int64_t i(0); i < gb.size(); ++i) if(!gb[i].first.is_zero() && gb[i].first.data.rbegin()->first <= a.data.rbegin()->first)
+                {
+                    c.emplace_back(gb[i].first.data.rbegin() -> second);
+                    idx.emplace_back(i);
+                }
+                ideal_solver<base_ring> c_ideal(c);
+                auto [res, cap] = c_ideal.detach(a.data.rbegin()->second);
+                if(!cap) break;
+                for(std::int64_t i(0); i < idx.size(); ++i)
+                {
+                    poly multiplicator({std::make_pair(a.data.rbegin()->first / gb[idx[i]].first.data.rbegin()->first, res[i]),});
+                    coefs[idx[i]] = coefs[idx[i]] + multiplicator;
+                    a = a - gb[idx[i]].first * multiplicator;
+                }
+            }
+            return coefs;
+        };
+        std::int64_t num = 0;
+        std::function<void(std::vector<std::int64_t>, std::int64_t)> dfs = [&](std::vector<std::int64_t> idxs, std::int64_t pos)
+        {
+            if(pos >= gb.size()) return;
+            dfs(idxs, pos + 1);
+            idxs.emplace_back(pos);
+            if(idxs.size() > 1)
+            {
+                std::string sig(gb.size(), '0');
+                std::vector<base_ring> syz_poly;
+                Hterm lcm;
+                for(std::int64_t i : idxs)
+                    sig[i] = '1', syz_poly.emplace_back(gb[i].first.data.rbegin() -> second), lcm = hterm_max(lcm, gb[i].first.data.rbegin() -> first);
+                syzygy_map.try_emplace(sig, (std::int64_t)g_basis.size(), syz_poly);
+                auto iter = syzygy_map.find(sig);
+                for(auto sb : iter -> second.second.basis)
+                {
+                    poly r;
+                    std::vector<poly> basis_coef(gb.size());
+                    for(std::int64_t _(0); _ < idxs.size(); ++_)
+                    {
+                        poly multiplicator({std::make_pair(lcm / gb[idxs[_]].first.data.rbegin()->first, sb[_]),});
+                        basis_coef[idxs[_]] = multiplicator;
+                        r = r + multiplicator * gb[idxs[_]].first;
+                    }
+                    std::vector<poly> coef_red = g_red(r);
+                    for(std::int64_t _(0); _ < gb.size(); ++_)
+                        basis_coef[_] = basis_coef[_] - coef_red[_];
+                    g_basis.emplace_back(basis_coef);
+                }
+            }
+            dfs(idxs, pos + 1);
+        };
+        dfs({}, 0);
+        for(auto f : s)
+        {
+            rev_trans.emplace_back(g_red(f));
+        }
+        for(std::int64_t i(0); i < g_basis.size(); ++ i)
+        {
+            std::vector<poly> bb(s.size());
+            for(std::int64_t j(0); j < gb.size(); ++ j)
+            {
+                for(std::int64_t k(0); k < s.size(); ++ k)
+                {
+                    bb[k] = bb[k] + g_basis[i][j] * gb[j].second[k];
+                }
+            }
+            bool all_zero(true);
+            for(std::int64_t k(0); k < s.size(); ++ k)
+                all_zero &= (bb[k].is_zero());
+            if(!all_zero) basis.emplace_back(bb), z_map.emplace_back(i);
+        }
+        for(std::int64_t i(0); i < s.size(); ++ i)
+        {
+            std::vector<poly> bb(s.size()); bb[i] = poly({std::make_pair(Hterm({0}), base_ring::get_identity()),});
+            for(std::int64_t j(0); j < gb.size(); ++ j)
+            {
+                for(std::int64_t k(0); k < s.size(); ++ k)
+                {
+                    bb[k] = bb[k] - rev_trans[i][j] * gb[j].second[k];
+                }
+            }
+            bool all_zero(true);
+            for(std::int64_t k(0); k < s.size(); ++ k)
+                all_zero &= (bb[k].is_zero());
+            if(!all_zero) basis.emplace_back(bb), z_map.emplace_back(i + gb.size());
+        }
+        // for(auto bb:basis)
+        // {
+        //     poly check;
+        //     for(std::int64_t i(0); i < s.size(); ++ i)
+        //         check = check + bb[i] * s[i];
+        //     assert(check.is_zero());
+        // }
+    }
+    std::pair<std::vector<poly>, bool> solve_syzygy(std::vector<poly> p)
+    {
+        p.resize(s.size()); poly sum;
+        for(std::size_t i = 0; i < s.size(); ++ i) sum = sum + s[i] * p[i];
+        if(!sum.is_zero()) return {{}, false};
+        poly rev(gb.size() + s.size());
+        for(std::int64_t i(0); i < s.size(); ++ i) rev[i + g_basis.size()] = p[i];
+        std::vector<poly> pg(gb.size());
+        for(std::int64_t i(0); i < s.size(); ++ i)
+        {
+            for(std::int64_t j(0); j < gb.size(); ++ j)
+            {
+                pg[j] = pg[j] + p[i] * rev_trans[i][j];
+            }
+        }
+        while(true)
+        {
+            bool all_zero(true);
+            Hterm lcm;
+            for(std::int64_t i(0); i < gb.size(); ++ i)
+                all_zero &= pg[i].is_zero();
+            if(all_zero) break;
+            for(std::int64_t i(0); i < gb.size(); ++ i)
+            {
+                poly mul = pg[i] * gb[i].first;
+                if(!mul.is_zero()) lcm = hterm_max(lcm, mul.data.rbegin() -> first);
+            }
+            std::vector<base_ring> syz_coef; std::string idx;
+            Hterm lcm_eq;
+            for(std::int64_t i(0); i < gb.size(); ++ i)
+            {
+                poly mul = pg[i] * gb[i].first;
+                if(!mul.is_zero() && mul.data.rbegin() -> first == lcm)
+                {
+                    syz_coef.emplace_back(pg[i].data.rbegin() -> second);
+                    lcm_eq = hterm_max(lcm_eq, gb[i].first.data.rbegin() -> first);
+                    idx = idx + '1';
+                }
+                else
+                {
+                    idx = idx + '0';
+                }
+            }
+            auto syz_iter = syzygy_map.find(idx);
+            auto [syz_res, _] = syz_iter -> second.solve(syz_coef);
+            for(std::int64_t i(0); i < syz_res.size(); ++ i)
+            {
+                poly multiplicator({std::make_pair(lcm / lcm_eq, syz_res[i])});
+                rev[i + syz_iter -> first] = rev[i + syz_iter -> first] + multiplicator;
+                for(std::int64_t j(0); j < gb.size(); ++ j)
+                {
+                    pg[j] = pg[j] - multiplicator * g_basis[syz_iter -> first + i][j];
+                }
+            }
+        }
+        std::vector<poly> ret;
+        for(auto t : z_map)
+            ret.emplace_back(rev[t]);
+        return {ret, true};
+    }
+};
 
 #endif
